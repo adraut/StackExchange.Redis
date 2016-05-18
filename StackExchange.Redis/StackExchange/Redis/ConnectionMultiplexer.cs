@@ -885,6 +885,12 @@ namespace StackExchange.Redis
                 }
                 if (!task.Result) throw ExceptionFactory.UnableToConnect(muxer.RawConfig.AbortOnConnectFail, muxer.failureMessage);
                 killMe = null;
+
+                if(muxer.ServerSelectionStrategy.ServerType == ServerType.Sentinel)
+                {
+                    // Initialize the Sentinel handlers
+                    muxer.InitializeSentinel(log);
+                }
                 return muxer;
             }
             finally
