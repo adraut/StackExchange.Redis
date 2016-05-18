@@ -715,35 +715,6 @@ namespace StackExchange.Redis
             return false;
         }
 
-		 private static async Task<Task<T>> WaitFirstNonNullIgnoreErrorsAsync<T>(Task<T>[] tasks)
-        {
-            if (tasks == null) throw new ArgumentNullException("tasks");
-            if (tasks.Length == 0) return null;
-            var typeNullable = (Nullable.GetUnderlyingType(typeof(T)) != null);
-            var taskList = tasks.Cast<Task>().ToList();
-
-            try
-            {
-                while (taskList.Count() > 0)
-                {
-#if NET40
-                    var allTasksAwaitingAny = TaskEx.WhenAny(taskList).ObserveErrors();
-#else
-                    var allTasksAwaitingAny = Task.WhenAny(taskList).ObserveErrors();
-#endif
-                    var result = await allTasksAwaitingAny.ForAwait();
-                    taskList.Remove((Task<T>)result);
-                    if (((Task<T>)result).IsFaulted) continue;
-                    if ((!typeNullable) || ((Task<T>)result).Result != null)
-                        return (Task<T>)result;
-                }
-            }
-            catch
-            { }
-
-            return null;
-        }
-		
 
         /// <summary>
         /// Raised when a hash-slot has been relocated
@@ -914,12 +885,6 @@ namespace StackExchange.Redis
                 }
                 if (!task.Result) throw ExceptionFactory.UnableToConnect(muxer.RawConfig.AbortOnConnectFail, muxer.failureMessage);
                 killMe = null;
-
-                if(muxer.ServerSelectionStrategy.ServerType == ServerType.Sentinel)
-                {
-                    // Initialize the Sentinel handlers
-                    muxer.InitializeSentinel(log);
-                }
                 return muxer;
             }
             finally
@@ -1051,21 +1016,6 @@ namespace StackExchange.Redis
         internal static long LastGlobalHeartbeatSecondsAgo => unchecked(Environment.TickCount - VolatileWrapper.Read(ref lastGlobalHeartbeatTicks)) / 1000;
 
         internal CompletionManager UnprocessableCompletionManager => unprocessableCompletionManager;
-		internal EndPoint GetConfiguredMasterForService(int timeoutmillis = -1)
-        {
-            Task<EndPoint>[] sentinelMasters = this.serverSnapshot
-                        .Where(s => s.ServerType == ServerType.Sentinel)
-                        .Select(s => this.GetServer(s.EndPoint).SentinelGetMasterAddressByNameAsync(RawConfig.ServiceName))
-                        .ToArray();
-
-            Task<Task<EndPoint>> firstCompleteRequest = WaitFirstNonNullIgnoreErrorsAsync(sentinelMasters);
-            if (!firstCompleteRequest.Wait(timeoutmillis))
-                throw new TimeoutException("Timeout resolving master for service");
-            if (firstCompleteRequest.Result.Result == null)
-                throw new Exception("Unable to determine master");
-
-            return firstCompleteRequest.Result.Result;
-        }		
 
         /// <summary>
         /// Obtain a pub/sub subscriber connection to the specified server
